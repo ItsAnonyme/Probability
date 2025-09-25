@@ -14,25 +14,41 @@ HomeTeam = "Chelsea"
 AwayTeam = "Arsenal"
 
 # Where we get our data
-Data = pd.read_csv("Dataset-small.csv", skiprows=range(1, 3042), skipfooter=216, engine='python')
+Data = pd.read_csv("Dataset-small.csv", skiprows=1, skipfooter=196, engine='python')
 
-def prediction_poisson(HomeTeam, AwayTeam):
+if 'Date' in Data.columns:
+    Data['Date'] = pd.to_datetime(Data['Date'], dayfirst=True)
+else:
+    raise ValueError("Your dataset must contain a 'Date' column to compute time weights.")
+
+# Function to calculate weights
+def calculate_weights(dates, x):
+    latest_date = dates.max()
+    diff_half_weeks = ((latest_date - dates).dt.days) / 3.5
+    return np.exp(-x * diff_half_weeks)
+
+def prediction_poisson(HomeTeam, AwayTeam, x):
     #print("Predicting for:", HomeTeam, "vs", AwayTeam)
     max_goals = 10
 
     # Rewriting the data
-    home_df = pd.DataFrame(data={"team": Data.HomeTeam, "opponent": Data.AwayTeam, "goals": Data.FTHG, "home": 1, "win": 1})
-    away_df = pd.DataFrame(data={"team": Data.AwayTeam, "opponent": Data.HomeTeam, "goals": Data.FTAG, "home": 0, "win": 0})
+    home_df = pd.DataFrame(data={"team": Data.HomeTeam, "opponent": Data.AwayTeam, "goals": Data.FTHG, "home": 1, "Date": Data.Date})
+    away_df = pd.DataFrame(data={"team": Data.AwayTeam, "opponent": Data.HomeTeam, "goals": Data.FTAG, "home": 0, "Date": Data.Date})
+
+    full_df = pd.concat([home_df, away_df]).reset_index(drop=True)
+
+    # Apply time-based weights
+    full_df['weights'] = calculate_weights(full_df['Date'], x)
 
     # Applying Poisson Distribution
     model_Poisson = smf.glm(data=pd.concat([home_df, away_df]), family=sm.families.Poisson(),
-                            formula="goals ~ home + team + opponent + win").fit()
+                            formula="goals ~ home * team + opponent", freq_weights=full_df['weights']).fit()
     #print(model_Poisson.summary())
     # Goals prediction
     home_goals = \
-    (model_Poisson.predict(pd.DataFrame(data={"team": HomeTeam, "opponent": AwayTeam, "home": 1, "win": 1}, index=[1])).values[0])
+    (model_Poisson.predict(pd.DataFrame(data={"team": HomeTeam, "opponent": AwayTeam, "home": 1}, index=[1])).values[0])
     away_goals = \
-    model_Poisson.predict(pd.DataFrame(data={"team": AwayTeam, "opponent": HomeTeam, "home": 0, "win": 0}, index=[1])).values[0]
+    model_Poisson.predict(pd.DataFrame(data={"team": AwayTeam, "opponent": HomeTeam, "home": 0}, index=[1])).values[0]
 
     # The matrix containing the probability of each outcome up to max_goals
     Probability_matrix = [[poisson.pmf(i, team_avg) for i in range(0, max_goals)]
