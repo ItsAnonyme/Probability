@@ -4,7 +4,6 @@ import pandas as pd
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
 from scipy.stats import poisson
-from AvgGoalMethods import *
 import matplotlib as plt
 import math
 
@@ -14,7 +13,7 @@ HomeTeam = "Chelsea"
 AwayTeam = "Arsenal"
 
 # Where we get our data
-Data = pd.read_csv("Dataset-small.csv", skiprows=1, skipfooter=196, engine='python')
+Data = pd.read_csv("premier_league_all_seasons_cleaned.csv", skiprows=0, skipfooter=192, engine='python')
 
 if 'Date' in Data.columns:
     Data['Date'] = pd.to_datetime(Data['Date'], dayfirst=True)
@@ -69,30 +68,3 @@ def prediction_poisson(HomeTeam, AwayTeam, x):
 
 if __name__ == "__main__":
     print(prediction_poisson(HomeTeam, AwayTeam))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
