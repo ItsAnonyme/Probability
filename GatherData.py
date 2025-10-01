@@ -2,6 +2,7 @@ import pandas as pd
 import requests
 from io import StringIO
 import csv
+from datetime import datetime
 
 BASE_URL = "https://www.football-data.co.uk/mmz4281/{}/E0.csv"
 
@@ -37,7 +38,7 @@ def make_unique_columns(df):
 
 # Build season codes
 start_year = 1993
-current_year = 2025
+current_year = datetime.now().year + 1
 seasons = [f"{str(y)[-2:]}{str(y+1)[-2:]}" for y in range(start_year, current_year)]
 print("Seasons to fetch:", seasons[:5], "...", seasons[-5:])
 
@@ -118,20 +119,23 @@ columns_to_remove = [
     "B365CH","B365AHA","AvgCH","1XBH","Extra_60","ABP","BbAv>2.5","WHH","_9","BbOU",
     "B365CD","IWCH","VCCH","SOH","BWCH","_17","P<2.5","BFCH","Extra_69","BbMxAHH","GBH",
     "GBA","P>2.5","Extra_57","B365C<2.5","HY","SBA","BFCA","Extra_71","Div","GB>2.5",
-    "AHCh","BbAvA","BWH","Avg>2.5","BFEA","BWCA","AST","_12","Extra_68","Time","AO",
+    "AHCh","BbAvA","BWH","Avg>2.5","BFEA","BWCA","AST","_12","Extra_68","AO",
     "GB<2.5","1XBCD","_7","AS","_19","BbMxH","BFECH","SJD","B365CA","BFECD","B365D",
     "WHCA","HTR","Extra_65","_20","BFEC<2.5","GBAH","PC>2.5","Extra_66","BWD","BSD",
     "1XBA","BFEAHH","BbMxA","BFECAHA","HF","PCAHH","Avg<2.5","B365C>2.5","BFD","LBH",
     "AvgCD","MaxAHH","BbMxD","_1","AvgAHA","1XBCH","BWA","AF","PSCA","Max<2.5","ï»¿Div",
     "WHA","MaxC<2.5","B365CAHA","LBAHH","_14","IWH","BFEH","MaxA","Extra_62","IWD","AHh",
     "AHW","BFH","BFED","_13","B365<2.5","AvgCAHA","PAHA","BFE>2.5","_4","BbAvD","PSCH",
-    "AvgD","HR","_15","BbAH","MaxCD","SOD","BbMx>2.5","AvgCAHH","GBAHH","LBA","HST","AvgA"
+    "AvgD","HR","_15","BbAH","MaxCD","SOD","BbMx>2.5","AvgCAHH","GBAHH","LBA","HST","AvgA",
+    "BFDA","CLA","BVD","LBCH","CLCA","BMGMD","BVCH","LBCA","CLH","BMGMCA","BFDD","BMGMA",
+    "BVA","LBCD","BVCA","BFDCA","BVH","BMGMCD","BFDH","BFDCD","BMGMCH","BFDCH","BMGMH",
+    "CLCD","BVCD","CLCH","CLD"
 ]
 
 merged_df = merged_df.drop(columns=[col for col in columns_to_remove if col in merged_df.columns], errors='ignore')
 
 # Reorder columns as requested
-desired_order = ["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR", "Referee", "Attendance"]
+desired_order = ["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR", "Referee", "Attendance", "Time"]
 existing_cols = [col for col in desired_order if col in merged_df.columns]
 other_cols = [col for col in merged_df.columns if col not in existing_cols]
 merged_df = merged_df[existing_cols + other_cols]
@@ -141,5 +145,5 @@ if "Date" in merged_df.columns:
     merged_df = merged_df.sort_values("Date").reset_index(drop=True)
 
 # Save cleaned CSV
-merged_df.to_csv("premier_league_all_seasons_cleaned.csv", index=False)
+merged_df.to_csv("premier_league_all_seasons_cleaned_testfile.csv", index=False)
 print(f"\n🎉 Done! Cleaned, ordered, and sorted data saved with {len(merged_df)} rows")
