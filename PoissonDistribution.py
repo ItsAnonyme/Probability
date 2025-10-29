@@ -10,23 +10,24 @@ from decimal import Decimal
 # Choose your teams
 HomeTeam = "Sunderland"
 AwayTeam = "Arsenal"
-Time = "16:00"
+Time = "Unknown"
 max_goals = 10
 
 # Where we get our data
-Data = pd.read_csv("premier_league_all_seasons_cleaned.csv", skiprows=0, skipfooter=242, engine='python')
-List = pd.read_csv("premier_league_all_seasons_cleaned.csv", skiprows=range(0, 12132), skipfooter=0, engine="python")
+Data = pd.read_csv("premier_league_all_seasons_cleaned.csv", skiprows=0, skipfooter=430, engine='python')
+List = pd.read_csv("premier_league_all_seasons_cleaned.csv", skiprows=range(0, 11944), skipfooter=50, engine="python")
 
 # Rewriting the data
 home_df = pd.DataFrame(data={"team": Data.HomeTeam, "opponent": Data.AwayTeam, "goals": Data.FTHG, "home": 1, "Date": pd.to_datetime(Data.Date, errors="coerce"), "Time": Data.Time})
 away_df = pd.DataFrame(data={"team": Data.AwayTeam, "opponent": Data.HomeTeam, "goals": Data.FTAG, "home": 0, "Date": pd.to_datetime(Data.Date, errors="coerce"), "Time": Data.Time})
 full_df = pd.concat([home_df, away_df]).reset_index(drop=True)
+full_df['Time'] = full_df['Time'].fillna('Unknown')
 
 # Function to calculate weights
 def calculate_weights(dates, x):
     dates = pd.to_datetime(dates, errors="coerce")
     latest_date = dates.max()
-    diff_half_weeks = ((latest_date - dates).dt.days) / 3.5
+    diff_half_weeks = ((latest_date - dates).dt.days)
     return np.exp(-x * diff_half_weeks)
 
 def prediction_poisson(HomeTeam, AwayTeam, x, Time_of_Match):
@@ -38,6 +39,8 @@ def prediction_poisson(HomeTeam, AwayTeam, x, Time_of_Match):
     model_Poisson = smf.glm(data=full_df, family=sm.families.Poisson(),
                             formula="goals ~ home + team + opponent + Time", freq_weights=full_df['weights']).fit()
     #print(model_Poisson.summary())
+    #print(model_Poisson.aic)
+    #print(model_Poisson.bic_llf)
 
     # Goals prediction
     home_goals = \
@@ -73,11 +76,15 @@ def prediction_poisson(HomeTeam, AwayTeam, x, Time_of_Match):
 
 def compare_prediction_poisson():
     results = {}
-    for j in np.arange(0.0055, 0.05, 0.0005):
+    for j in np.arange(0.002, 0.01, 0.0005):
         temp_poisson = 0
         for i in range(0, len(List)):
-            if prediction_poisson(List.iloc[i, 1], List.iloc[i, 2], j, List.iloc[i, 8]) == List.iloc[i, 5]:
-                temp_poisson += 1
+            if List.iloc[i, 8] in Data.Time:
+                if prediction_poisson(List.iloc[i, 1], List.iloc[i, 2], j, List.iloc[i, 8]) == List.iloc[i, 5]:
+                    temp_poisson += 1
+            else:
+                if prediction_poisson(List.iloc[i, 1], List.iloc[i, 2], j, "Unknown") == List.iloc[i, 5]:
+                    temp_poisson += 1
         results[j] = temp_poisson/len(List)
         print(f"{j}: {temp_poisson/len(List)}")
         print(f"The Poisson Distribution got {round(Decimal((temp_poisson/len(List)) * 100), 10)} % correct")
@@ -92,5 +99,5 @@ def compare_prediction_poisson_once():
     print(f"The Poisson Distribution got {round(Decimal((temp_poisson/len(List)) * 100), 10)} % correct")
 
 if __name__ == "__main__":
-    print(f"Expected winner: {prediction_poisson(HomeTeam, AwayTeam, 0.027, Time)}")
-    compare_prediction_poisson_once()
+    #print(f"Expected winner: {prediction_poisson(HomeTeam, AwayTeam, 0.005, Time)}")
+    compare_prediction_poisson()
