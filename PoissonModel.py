@@ -15,8 +15,8 @@ decay_rate = 0.004
 lower_bound = 1000
 
 # Where we get our data
-Data = pd.read_csv("premier_league_all_seasons_cleaned_testfile.csv")
-List = pd.read_csv("premier_league_all_seasons_cleaned_testfile.csv", skiprows=11944, skipfooter=50, engine="python")
+Data = pd.read_csv("premier_league_all_seasons_cleaned.csv")
+List = pd.read_csv("premier_league_all_seasons_cleaned.csv", skiprows=11944, skipfooter=50, engine="python")
 
 # Sort by date first
 Data["Date"] = pd.to_datetime(Data["Date"], errors="coerce")
@@ -62,7 +62,11 @@ Data = Data.merge(
 }).drop(columns=["team"])
 
 # previous result vs same opponent
-Data["h2h_last"] = Data.groupby(["HomeTeam", "AwayTeam"])["FTR"].shift(1)
+Data["pair"] = Data.apply(
+    lambda row: "-".join(sorted([row["HomeTeam"], row["AwayTeam"]])),
+    axis=1
+)
+Data["h2h_last"] = Data.groupby("pair")["FTR"].shift(1)
 Data["h2h_last"] = Data["h2h_last"].map({'H': 1, 'A': -1, 'D': 0})
 
 # Compute each team's previous match date
@@ -118,50 +122,22 @@ away_df = pd.DataFrame({
     "opp_conceded_last5": Data["team_conceded_last5"],
     "team_last_result": Data["opp_last_result"],
     "opp_last_result": Data["team_last_result"],
-    "h2h_last": Data["h2h_last"],
+    "h2h_last": -Data["h2h_last"],
     "team_rest_days": Data["rest_days_away"],
     "opp_rest_days": Data["rest_days_home"],
     "result": Data["FTR"]
 })
 full_df = pd.concat([home_df, away_df]).reset_index(drop=True)
-full_df = full_df.sort_values(["Date"])
 full_df['Time'] = full_df['Time'].fillna('Unknown')
-full_df['team_goals_last5'] = full_df['team_goals_last5'].fillna(full_df['team_goals_last5'].mean())
-pd.set_option('display.max_columns', None)
-pd.set_option('display.width', None)
-print(full_df.loc[11935:11955, :])
-if full_df.isna().any().any():
-    print("❌ new_data contains NaN → cannot predict")
-    print(full_df.isna().sum())
+full_df['team_last_result'] = full_df['team_last_result'].fillna(0)
+full_df['opp_last_result'] = full_df['opp_last_result'].fillna(0)
+full_df['h2h_last'] = full_df['h2h_last'].fillna(0)
 
-def get_latest_team_stats(match_date, team_name, is_home):
-    team_rows = full_df[(full_df["team"] == team_name) & (full_df["Date"] < match_date)].sort_values("Date")
-    if team_rows.empty:
-        # fallback if new team
-        return {
-            "team_goals_last5": full_df["team_goals_last5"].mean(),
-            "team_conceded_last5": full_df["team_conceded_last5"].mean(),
-            "opp_goals_last5": full_df["opp_goals_last5"].mean(),
-            "opp_conceded_last5": full_df["opp_conceded_last5"].mean(),
-            "team_last_result": 0,
-            "opp_last_result": 0,
-            "h2h_last": 0,
-            "team_rest_days": full_df["team_rest_days"].median(),
-            "opp_rest_days": full_df["opp_rest_days"].median()
-        }
-    else:
-        latest = team_rows.iloc[-1]
-        return {
-            "team_goals_last5": latest["team_goals_last5"],
-            "team_conceded_last5": latest["team_conceded_last5"],
-            "opp_goals_last5": latest["opp_goals_last5"],
-            "opp_conceded_last5": latest["opp_conceded_last5"],
-            "team_last_result": latest["team_last_result"],
-            "opp_last_result": latest["opp_last_result"],
-            "h2h_last": latest["h2h_last"],
-            "team_rest_days": latest["team_rest_days"],
-            "opp_rest_days": latest["opp_rest_days"]
-        }
+formula = ("goals ~ home + team + opponent"
+            "+ team_goals_last5 + team_conceded_last5 "
+            "+ opp_goals_last5 + opp_conceded_last5 "
+            "+ team_last_result + opp_last_result "
+            "+ h2h_last + team_rest_days + opp_rest_days")
 
 # Function to calculate weights
 def calculate_weights(dates, x):
@@ -176,57 +152,9 @@ def prediction_poisson(match_date, HomeTeam, AwayTeam, team_goals_last5, team_co
                        h2h_last, team_rest_days, opp_rest_days, x, i):
     rows = np.r_[0:i, 12374:2 * i]
     df_train = full_df.iloc[rows, :].copy()
-    print("---- DEBUG FOR MATCH ----")
-    print(HomeTeam, "vs", AwayTeam, "on", match_date)
-    print("df_train size:", df_train.shape)
 
-    if df_train.empty:
-        print("❌ df_train is EMPTY → No past matches available")
-        return None
 
-    # Print count of NaNs in training set
-    print("NaNs per column in df_train:")
-    print(df_train.isna().sum())
-
-    # If any feature has huge NaN count, highlight it
-    bad_cols = df_train.columns[df_train.isna().sum() > 0].tolist()
-    if bad_cols:
-        print("⚠ Columns with NaNs:", bad_cols)
-    fill_values = {
-        "team_goals_last5": 0,
-        "team_conceded_last5": 0,
-        "opp_goals_last5": 0,
-        "opp_conceded_last5": 0,
-        "team_last_result": 0,
-        "opp_last_result": 0,
-        "h2h_last": 0,
-        "team_rest_days": 7,
-        "opp_rest_days": 7,
-    }
-    df_train = df_train.fillna(fill_values)
-
-    df_train["weights"] = calculate_weights(df_train['Date'], x)
-    model = smf.glm(data=df_train, family=sm.families.Poisson(),
-                            formula="goals ~ home + team + opponent"
-                                    "+ team_goals_last5 + team_conceded_last5 "
-                                    "+ opp_goals_last5 + opp_conceded_last5 "
-                                    "+ team_last_result + opp_last_result "
-                                    "+ h2h_last + team_rest_days + opp_rest_days",
-                            freq_weights=df_train['weights']).fit()
     #print(model.summary())
-    home_features = get_latest_team_stats(match_date, HomeTeam, True)
-    away_features = get_latest_team_stats(match_date, AwayTeam, False)
-
-    input_row_home = {"team": HomeTeam, "opponent": AwayTeam, "home": 1, **home_features}
-    input_row_away = {"team": AwayTeam, "opponent": HomeTeam, "home": 0, **away_features}
-    new_data_home = pd.DataFrame([input_row_home])
-    new_data_away = pd.DataFrame([input_row_away])
-
-    new_data_home = new_data_home.fillna(fill_values)
-    new_data_away = new_data_away.fillna(fill_values)
-
-    #home_goals = model.predict(new_data_home).values[0]
-    #away_goals = model.predict(new_data_away).values[0]
 
     home_goals = (model.predict(pd.DataFrame(data={"team": HomeTeam, "opponent": AwayTeam, "home": 1,
                                                    "team_goals_last5": team_goals_last5, "team_conceded_last5": team_conceded_last5,
@@ -241,10 +169,6 @@ def prediction_poisson(match_date, HomeTeam, AwayTeam, team_goals_last5, team_co
                                                    "team_last_result": opp_last_result, "opp_last_result": team_last_result,
                                                    "h2h_last": h2h_last, "team_rest_days": opp_rest_days,
                                                    "opp_rest_days": team_rest_days}, index=[1])).values[0])
-    if np.isnan(home_goals) or np.isnan(away_goals):
-        print("❌ GLM returned NaN λ → inspect model summary next")
-        print(model.summary())
-        return None
 
     probs = np.outer(poisson.pmf(range(max_goals), home_goals),
                      poisson.pmf(range(max_goals), away_goals))
@@ -273,20 +197,12 @@ def compare_prediction_poisson_once(decay_rate):
         error1_home, error1_away, error2_home, error2_away, deviance_home, deviance_away = 0, 0, 0, 0, 0, 0
         result, score_result, actual_result = Counter(), Counter(), Counter()
         for i in range(11944, 12324):
-            print("Is this the right value of i?", i)
-            #if List.iloc[i, 8] in Data.Time:
-            #    prediction, home_goals, away_goals, winner, home_goals_predict, away_goals_predict = prediction_poisson(List.iloc[i, 0],
-            #        List.iloc[i, 1], List.iloc[i, 2], List.iloc[i, 8], decay_rate)
-            #else:
-            #    prediction, home_goals, away_goals, winner, home_goals_predict, away_goals_predict = prediction_poisson(
-            #        List.iloc[i, 0], List.iloc[i, 1], List.iloc[i, 2], "Unknown", decay_rate)
             prediction, home_goals, away_goals, winner, home_goals_predict, away_goals_predict = prediction_poisson(
                 full_df.iloc[i, 4], full_df.iloc[i, 0], full_df.iloc[i, 1], full_df.iloc[i, 6],
                 full_df.iloc[i, 7], full_df.iloc[i, 8], full_df.iloc[i, 9], full_df.iloc[i, 10],
                 full_df.iloc[i, 11], full_df.iloc[i, 12], full_df.iloc[i, 13], full_df.iloc[i, 14], decay_rate, i)
             result[prediction] += 1
-            actual_result[full_df.iloc[i, 5]] += 1
-            # print("Actual match result", List.iloc[i, 3], "-", List.iloc[i, 4])
+            actual_result[full_df.iloc[i, 15]] += 1
             error1_home += (home_goals_predict - full_df.iloc[i, 2]) ** 2
             error1_away += (home_goals - full_df.iloc[i, 2]) ** 2
             error2_home += (away_goals_predict - full_df.iloc[2*i, 2]) ** 2
@@ -339,4 +255,4 @@ def compare_prediction_poisson_once(decay_rate):
 
 if __name__ == '__main__':
     compare_prediction_poisson_once(decay_rate)
-    #prediction_poisson("2025-11-20", HomeTeam, AwayTeam, decay_rate)
+    #prediction_poisson("2025-11-20", HomeTeam, AwayTeam, 5, 3, 3, 5, 1, -1, 1, 50, 5, decay_rate, 11944)
