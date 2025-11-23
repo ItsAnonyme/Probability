@@ -9,10 +9,10 @@ import math
 # Choose your teams
 HomeTeam = "Crystal Palace"
 AwayTeam = "Wolves"
-time_of_match = "Unknown"
+#time_of_match = "Unknown"
 max_goals = 10
 decay_rate = 0.004
-lower_bound = 1000
+lower_bound = 2000
 
 # Where we get our data
 Data = pd.read_csv("premier_league_all_seasons_cleaned.csv")
@@ -129,11 +129,12 @@ away_df = pd.DataFrame({
 })
 full_df = pd.concat([home_df, away_df]).reset_index(drop=True)
 full_df['Time'] = full_df['Time'].fillna('Unknown')
-full_df['team_last_result'] = full_df['team_last_result'].fillna(0)
-full_df['opp_last_result'] = full_df['opp_last_result'].fillna(0)
-full_df['h2h_last'] = full_df['h2h_last'].fillna(0)
+full_df['team_last_result'] = full_df['team_last_result'].fillna('Unknown')
+full_df['opp_last_result'] = full_df['opp_last_result'].fillna('Unknown')
+full_df['h2h_last'] = full_df['h2h_last'].fillna('Unknown')
+#print(full_df.loc[12374+11944])
 
-formula = ("goals ~ home + team + opponent"
+formula = ("goals ~ home + team + opponent + Time"
             "+ team_goals_last5 + team_conceded_last5 "
             "+ opp_goals_last5 + opp_conceded_last5 "
             "+ team_last_result + opp_last_result "
@@ -147,94 +148,162 @@ def calculate_weights(dates, x):
     weights = np.exp(-x * diff_half_weeks)
     return weights
 
-def prediction_poisson(match_date, HomeTeam, AwayTeam, team_goals_last5, team_conceded_last5,
-                       opp_goals_last5, opp_conceded_last5, team_last_result, opp_last_result,
-                       h2h_last, team_rest_days, opp_rest_days, x, i):
-    rows = np.r_[0:i, 12374:2 * i]
+#def model_test():
+#    rows = np.r_[0:11944, 12374:12374 + 11944]
+#    df_train = full_df.iloc[rows, :].copy()
+#    df_train['weights'] = calculate_weights(df_train['Date'], decay_rate)
+#    model = smf.glm(data=df_train, family=sm.families.Poisson(),
+#                    formula=formula,
+#                    freq_weights=df_train['weights']).fit()
+#    return model
+#model2 = model_test()
+
+def prediction_poisson(i, time_of_match):
+    rows = np.r_[0:i, 12374:12374 + i]
     df_train = full_df.iloc[rows, :].copy()
-
-
+    df_train["weights"] = calculate_weights(df_train['Date'], decay_rate)
+    model = smf.glm(data=df_train, family=sm.families.Poisson(),
+                    formula=formula,
+                    freq_weights=df_train['weights']).fit()
     #print(model.summary())
-
-    home_goals = (model.predict(pd.DataFrame(data={"team": HomeTeam, "opponent": AwayTeam, "home": 1,
+    Home_team = full_df['team'].iloc[i]
+    Away_team = full_df['opponent'].iloc[i]
+    match_date = full_df['Date'].iloc[i]
+    team_goals_last5 = full_df['team_goals_last5'].iloc[i]
+    team_conceded_last5 = full_df['team_conceded_last5'].iloc[i]
+    opp_goals_last5 = full_df['opp_goals_last5'].iloc[i]
+    opp_conceded_last5 = full_df['opp_conceded_last5'].iloc[i]
+    team_last_result = full_df['team_last_result'].iloc[i]
+    opp_last_result = full_df['opp_last_result'].iloc[i]
+    h2h_last_team = full_df['h2h_last'].iloc[i]
+    h2h_last_opp = full_df['h2h_last'].iloc[12374 + i]
+    team_rest_days = full_df['team_rest_days'].iloc[i]
+    opp_rest_days = full_df['opp_rest_days'].iloc[i]
+    score_home = full_df['goals'].iloc[i]
+    score_away = full_df['goals'].iloc[12374 + i]
+    #print(model.summary())
+    print(model.aic)
+    home_goals = (model.predict(pd.DataFrame(data={"team": Home_team, "opponent": Away_team, "home": 1, "Time": time_of_match,
                                                    "team_goals_last5": team_goals_last5, "team_conceded_last5": team_conceded_last5,
                                                    "opp_goals_last5": opp_goals_last5, "opp_conceded_last5": opp_conceded_last5,
                                                    "team_last_result": team_last_result, "opp_last_result": opp_last_result,
-                                                   "h2h_last": h2h_last, "team_rest_days": team_rest_days,
+                                                   "h2h_last": h2h_last_team, "team_rest_days": team_rest_days,
                                                    "opp_rest_days": opp_rest_days}, index=[1])).values[0])
 
-    away_goals = (model.predict(pd.DataFrame(data={"team": AwayTeam, "opponent": HomeTeam, "home": 0,
-                                                   "team_goals_last5": opp_goals_last5, "team_conceded_last5": opp_conceded_last5,
-                                                   "opp_goals_last5": team_goals_last5, "opp_conceded_last5": team_conceded_last5,
-                                                   "team_last_result": opp_last_result, "opp_last_result": team_last_result,
-                                                   "h2h_last": h2h_last, "team_rest_days": opp_rest_days,
-                                                   "opp_rest_days": team_rest_days}, index=[1])).values[0])
+    away_goals = (model.predict(pd.DataFrame(data={"team": Away_team, "opponent": Home_team, "home": 0, "Time": time_of_match,
+                                               "team_goals_last5": opp_goals_last5, "team_conceded_last5": opp_conceded_last5,
+                                               "opp_goals_last5": team_goals_last5, "opp_conceded_last5": team_conceded_last5,
+                                               "team_last_result": opp_last_result, "opp_last_result": team_last_result,
+                                               "h2h_last": h2h_last_opp, "team_rest_days": opp_rest_days,
+                                               "opp_rest_days": team_rest_days}, index=[1])).values[0])
 
     probs = np.outer(poisson.pmf(range(max_goals), home_goals),
                      poisson.pmf(range(max_goals), away_goals))
 
     # Find the location of the maximum value
     max_index = np.argmax(probs)
-    i, j = np.unravel_index(max_index, probs.shape)
+    h, a = np.unravel_index(max_index, probs.shape)
 
     # Print coordinates and the value
-    print(f"Largest value at {i}-{j} with probability {probs[i, j]:.5f}")
+    #print(f"Largest value at {h}-{a} with probability {probs[h, a]:.5f}")
 
     # Summing the probability of each outcome
     Home_Win = np.sum(np.tril(probs, -1))
     Draw = np.sum(np.diag(probs))
     Away_Win = np.sum(np.triu(probs, 1))
 
-    if Home_Win > Away_Win and Home_Win > Draw:
-        return "H", i, j, Home_Win, home_goals, away_goals
-    elif Away_Win > Draw and Away_Win > Home_Win:
-        return "A", i, j, Away_Win, home_goals, away_goals
-    else:
-        return "D", i, j, Draw, home_goals, away_goals
+    print(f"Predicting match number {i - 11943} for: {Home_team} vs {Away_team} on {match_date.date()}\n"
+          f"Prediction: {h}-{a} --- Actual result: {round(score_home)}-{round(score_away)}"),
 
-def compare_prediction_poisson_once(decay_rate):
+    if Home_Win > Away_Win and Home_Win > Draw:
+        return "H", h, a, Home_Win, home_goals, away_goals
+    elif Away_Win > Draw and Away_Win > Home_Win:
+        return "A", h, a, Away_Win, home_goals, away_goals
+    else:
+        return "D", h, a, Draw, home_goals, away_goals
+
+def compare_prediction_poisson_once():
         poisson_result_lower, poisson_result_upper, poisson_score_lower, poisson_score_upper, matches_lower, matches_upper = 0, 0, 0, 0, 0, 0
         error1_home, error1_away, error2_home, error2_away, deviance_home, deviance_away = 0, 0, 0, 0, 0, 0
         result, score_result, actual_result = Counter(), Counter(), Counter()
+        rows = np.r_[0:12324, 12374:12374 + 12324]
         for i in range(11944, 12324):
-            prediction, home_goals, away_goals, winner, home_goals_predict, away_goals_predict = prediction_poisson(
-                full_df.iloc[i, 4], full_df.iloc[i, 0], full_df.iloc[i, 1], full_df.iloc[i, 6],
-                full_df.iloc[i, 7], full_df.iloc[i, 8], full_df.iloc[i, 9], full_df.iloc[i, 10],
-                full_df.iloc[i, 11], full_df.iloc[i, 12], full_df.iloc[i, 13], full_df.iloc[i, 14], decay_rate, i)
-            result[prediction] += 1
-            actual_result[full_df.iloc[i, 15]] += 1
-            error1_home += (home_goals_predict - full_df.iloc[i, 2]) ** 2
-            error1_away += (home_goals - full_df.iloc[i, 2]) ** 2
-            error2_home += (away_goals_predict - full_df.iloc[2*i, 2]) ** 2
-            error2_away += (away_goals - full_df.iloc[2*i, 2]) ** 2
-            if (Data.HomeTeam == full_df.iloc[i, 0]).sum() + (Data.AwayTeam == full_df.iloc[2*i, 1]).sum() <= lower_bound:
-                matches_lower += 1
-                if prediction == full_df.iloc[i, 15]:
-                    poisson_result_lower += 1
-                if home_goals == full_df.iloc[i, 2] and away_goals == full_df.iloc[2*i, 2]:
-                    poisson_score_lower += 1
+            time_of_match = full_df['Time'].iloc[i]
+            if time_of_match in full_df.Time.iloc[rows]:
+                prediction, home_goals, away_goals, winner, home_goals_predict, away_goals_predict = prediction_poisson(i, time_of_match)
+                if (full_df.team.iloc[rows] == full_df['team'].iloc[i]).sum() + (full_df.team.iloc[rows] == full_df['opponent'].iloc[i]).sum() <= lower_bound:
+                    matches_lower += 1
+                    if prediction == full_df.iloc[i, 15]:
+                        poisson_result_lower += 1
+                    if home_goals == full_df.iloc[i, 2] and away_goals == full_df.iloc[12374 + i, 2]:
+                        poisson_score_lower += 1
+                else:
+                    matches_upper += 1
+                    if prediction == full_df.iloc[i, 15]:
+                        poisson_result_upper += 1
+                    if home_goals == full_df.iloc[i, 2] and away_goals == full_df.iloc[12374 + i, 2]:
+                        poisson_score_upper += 1
+                result[prediction] += 1
+                actual_result[full_df.iloc[i, 15]] += 1
+                error1_home += (home_goals_predict - full_df.iloc[i, 2]) ** 2
+                error1_away += (home_goals - full_df.iloc[i, 2]) ** 2
+                error2_home += (away_goals_predict - full_df.iloc[12374 + i, 2]) ** 2
+                error2_away += (away_goals - full_df.iloc[12374 + i, 2]) ** 2
+                if full_df.iloc[i, 2] > 0:
+                    deviance_home += full_df.iloc[i, 2] * math.log(full_df.iloc[i, 2]/home_goals_predict) - (full_df.iloc[i, 2] - home_goals_predict)
+                else:
+                    deviance_home += - (full_df.iloc[i, 2] - home_goals_predict)
+                if full_df.iloc[12374 + i, 2] > 0:
+                    deviance_away += full_df.iloc[12374 + i, 2] * math.log(full_df.iloc[12374 + i, 2]/away_goals_predict) - (full_df.iloc[12374 + i, 2] - away_goals_predict)
+                else:
+                    deviance_away += - (full_df.iloc[12374 + i, 2] - away_goals_predict)
+                if home_goals > away_goals:
+                    score_result['H'] += 1
+                elif away_goals > home_goals:
+                    score_result['A'] += 1
+                else:
+                    score_result['D'] += 1
             else:
-                matches_upper += 1
-                if prediction == full_df.iloc[i, 15]:
-                    poisson_result_upper += 1
-                if home_goals == full_df.iloc[i, 2] and away_goals == full_df.iloc[2*i, 2]:
-                    poisson_score_upper += 1
-            if full_df.iloc[i, 2] > 0:
-                deviance_home += full_df.iloc[i, 2] * math.log(full_df.iloc[i, 2]/home_goals_predict) - (full_df.iloc[i, 2] - home_goals_predict)
-            else:
-                deviance_home += - (full_df.iloc[i, 2] - home_goals_predict)
-            if full_df.iloc[2*i, 2] > 0:
-                deviance_away += full_df.iloc[2*i, 2] * math.log(full_df.iloc[2*i, 2]/away_goals_predict) - (full_df.iloc[2*i, 2] - away_goals_predict)
-            else:
-                deviance_away += - (full_df.iloc[2*i, 2] - away_goals_predict)
-            if home_goals > away_goals:
-                score_result['H'] += 1
-            elif away_goals > home_goals:
-                score_result['A'] += 1
-            else:
-                score_result['D'] += 1
-        print(f"The Poisson Distribution got {((poisson_result_lower + poisson_result_upper)/len(List)) * 100} % of the results correct")
-        print(f"The Poisson Distribution got {((poisson_score_lower + poisson_score_upper)/len(List)) * 100} % of the scores correct")
+                prediction, home_goals, away_goals, winner, home_goals_predict, away_goals_predict = prediction_poisson(
+                    i, 'Unknown')
+                if (full_df.team.iloc[rows] == full_df['team'].iloc[i]).sum() + (
+                        full_df.team.iloc[rows] == full_df['opponent'].iloc[i]).sum() <= lower_bound:
+                    matches_lower += 1
+                    if prediction == full_df.iloc[i, 15]:
+                        poisson_result_lower += 1
+                    if home_goals == full_df.iloc[i, 2] and away_goals == full_df.iloc[12374 + i, 2]:
+                        poisson_score_lower += 1
+                else:
+                    matches_upper += 1
+                    if prediction == full_df.iloc[i, 15]:
+                        poisson_result_upper += 1
+                    if home_goals == full_df.iloc[i, 2] and away_goals == full_df.iloc[12374 + i, 2]:
+                        poisson_score_upper += 1
+                result[prediction] += 1
+                actual_result[full_df.iloc[i, 15]] += 1
+                error1_home += (home_goals_predict - full_df.iloc[i, 2]) ** 2
+                error1_away += (home_goals - full_df.iloc[i, 2]) ** 2
+                error2_home += (away_goals_predict - full_df.iloc[12374 + i, 2]) ** 2
+                error2_away += (away_goals - full_df.iloc[12374 + i, 2]) ** 2
+                if full_df.iloc[i, 2] > 0:
+                    deviance_home += full_df.iloc[i, 2] * math.log(full_df.iloc[i, 2] / home_goals_predict) - (
+                                full_df.iloc[i, 2] - home_goals_predict)
+                else:
+                    deviance_home += - (full_df.iloc[i, 2] - home_goals_predict)
+                if full_df.iloc[12374 + i, 2] > 0:
+                    deviance_away += full_df.iloc[12374 + i, 2] * math.log(
+                        full_df.iloc[12374 + i, 2] / away_goals_predict) - (
+                                                 full_df.iloc[12374 + i, 2] - away_goals_predict)
+                else:
+                    deviance_away += - (full_df.iloc[12374 + i, 2] - away_goals_predict)
+                if home_goals > away_goals:
+                    score_result['H'] += 1
+                elif away_goals > home_goals:
+                    score_result['A'] += 1
+                else:
+                    score_result['D'] += 1
+        print(f"The Poisson Distribution got {((poisson_result_lower + poisson_result_upper)/380) * 100} % of the results correct")
+        print(f"The Poisson Distribution got {((poisson_score_lower + poisson_score_upper)/380) * 100} % of the scores correct")
         if matches_lower > 0:
             print(
                 f"The Poisson Distribution got {(poisson_result_lower / matches_lower) * 100} % correct in the lower bound\n"
@@ -248,11 +317,11 @@ def compare_prediction_poisson_once(decay_rate):
         print(dict(result))
         print(dict(score_result))
         print(dict(actual_result))
-        print(f"Home team goal difference: {math.sqrt(error1_home / len(List))} and {math.sqrt(error2_home / len(List))},\n"
-              f"away team goal difference: {math.sqrt(error1_away / len(List))} and {math.sqrt(error2_away / len(List))}")
+        print(f"Home team goal difference: {math.sqrt(error1_home / 380)} and {math.sqrt(error2_home / 380)},\n"
+              f"away team goal difference: {math.sqrt(error1_away / 380)} and {math.sqrt(error2_away / 380)}")
         print(f"Home team deviance: {2 * deviance_home}\n"
         f"Away team deviance: {2 * deviance_away}")
 
 if __name__ == '__main__':
-    compare_prediction_poisson_once(decay_rate)
+    compare_prediction_poisson_once()
     #prediction_poisson("2025-11-20", HomeTeam, AwayTeam, 5, 3, 3, 5, 1, -1, 1, 50, 5, decay_rate, 11944)
